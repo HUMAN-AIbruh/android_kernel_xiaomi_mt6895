@@ -1102,7 +1102,7 @@ static int mt_sgen_event(struct snd_soc_dapm_widget *w,
 
 static void mtk_hp_enable(struct mt6368_priv *priv)
 {
-	dev_dbg(priv->dev, "%s(), hp_hifi_mode = 0x%x\n", __func__, priv->hp_hifi_mode);
+	dev_info(priv->dev, "%s(), hp_hifi_mode = 0x%x\n", __func__, priv->hp_hifi_mode);
 	if (priv->mux_select[MUX_HP_L] == HP_MUX_HPSPK) {
 		/* Disable handset short-circuit protection */
 		regmap_write(priv->regmap, MT6368_AUDDEC_ANA_CON13, 0x10);
@@ -5601,6 +5601,32 @@ static int mt6368_rcv_dcc_set(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+static int hp_hifi_mode_get(struct snd_kcontrol *kcontrol,
+			    struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *cmpnt = snd_soc_kcontrol_component(kcontrol);
+	struct mt6368_priv *priv = snd_soc_component_get_drvdata(cmpnt);
+
+	ucontrol->value.integer.value[0] = priv->hp_hifi_mode;
+	return 0;
+}
+
+static int hp_hifi_mode_set(struct snd_kcontrol *kcontrol,
+			    struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *cmpnt = snd_soc_kcontrol_component(kcontrol);
+	struct mt6368_priv *priv = snd_soc_component_get_drvdata(cmpnt);
+	int v = !!ucontrol->value.integer.value[0];
+
+	/* keep the hp_in_pair_current() ramp symmetric across a power cycle */
+	if (priv->dev_counter[DEVICE_HP] > 0)
+		return -EBUSY;
+	if (v == priv->hp_hifi_mode)
+		return 0;
+	priv->hp_hifi_mode = v;
+	return 1;
+}
+
 static const struct snd_kcontrol_new mt6368_snd_misc_controls[] = {
 	SOC_ENUM_EXT("Headphone Plugged In", misc_control_enum[0],
 		     hp_plugged_in_get, hp_plugged_in_set),
@@ -5610,6 +5636,8 @@ static const struct snd_kcontrol_new mt6368_snd_misc_controls[] = {
 	SOC_ENUM_EXT("PMIC_REG_CLEAR", misc_control_enum[0],
 		     NULL, mt6368_rcv_dcc_set),
 	SOC_ENUM_EXT("DMic Used", misc_control_enum[0], dmic_used_get, NULL),
+	SOC_SINGLE_EXT("HP Hifi Mode", SND_SOC_NOPM, 0, 1, 0,
+		       hp_hifi_mode_get, hp_hifi_mode_set),
 };
 
 static int mt6368_codec_init_reg(struct snd_soc_component *cmpnt)
@@ -5663,8 +5691,8 @@ static int mt6368_codec_init_reg(struct snd_soc_component *cmpnt)
 	priv->hp_gain_ctl = HP_GAIN_CTL_ZCD;
 	hp_gain_ctl_select(priv, priv->hp_gain_ctl);
 
-	/* hp hifi mode, default normal mode */
-	priv->hp_hifi_mode = 0;
+	/* hp hifi mode, default Hi-Fi (switchable at runtime via "HP Hifi Mode") */
+	priv->hp_hifi_mode = 1;
 
 	/* Disable AUD_ZCD */
 	zcd_disable(priv);
